@@ -1,0 +1,411 @@
+---
+title: "Simulations"
+author: "Bodhi Bourland"
+date: "2024-02-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(GGally)
+library(knitr)
+library(gridExtra)
+```
+
+## Mimic the dealer
+
+```{r, include=FALSE}
+mimicStats <- simMimicDealer(100000, 6)
+MoutcomeResults <- mimicStats %>% group_by(outcome) %>% summarise(n=n(),                                                        Probability = n/nrow(mimicStats))
+row6Deck<- c("6", MoutcomeResults[1,3], MoutcomeResults[2,3], MoutcomeResults[3,3])
+```
+```{r}
+write.csv(mimicStats, "MimicTheDealerSim.csv", row.names=FALSE)
+```
+
+
+## Proving you should always Stand on 17
+
+```{r, include=FALSE}
+##Probabilities after staying
+Stay17 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(7, 10, i, 6, 0.20)
+sim2 <- fixedStay(8, 9, i, 6, 0.20)
+Stay17[1,i-1] <- sim1[[1]]*100
+Stay17[2,i-1] <- sim2[[1]]*100
+}
+colnames(Stay17) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("7, 10", "8, 9")
+Stay17 <- data.frame(Combination, Stay17)
+```
+
+```{r, include=FALSE}
+##Probabilities after hitting
+Hit17 <- data.frame()
+for(i in 2:11){
+  sim1 <- fixedHit(7, 10, i, 6, 0.20)
+  sim2 <- fixedHit(8, 9, i, 6, 0.20)
+  Hit17[1,i-1] <- sim1[[1]]*100
+  Hit17[2,i-1] <- sim2[[1]]*100
+}
+colnames(Hit17) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("7, 10", "8, 9")
+Hit17 <- data.frame(Combination, Hit17)
+```
+
+```{r}
+bsBottomRow <- BSchartRow(Stay17, Hit17, 17)
+colnames(bsBottomRow) <- c("playerTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+write.csv(Stay17, "Stay17.csv")
+write.csv(Hit17, "Hit17.csv")
+```
+
+##Starting Boundaries of Basic Strategy Chart
+```{r}
+begChart <- data.frame()
+for(i in 1:5){
+  begChart[i,1] <- i+6
+  for(j in 2:11){
+    begChart[i,j] <- "H"
+  }
+colnames(begChart) <- c("playerTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+beginningChart <- rbind(begChart, bsBottomRow)
+
+}
+begChart$playerTotal <- as.integer(begChart$playerTotal)
+bsBottomRow$playerTotal <- as.integer(bsBottomRow$playerTotal)
+write.csv(beginningChart, "boundariesBSChart.csv")
+```
+
+## Basic Strategy: Player total = 16
+
+```{r, include=FALSE}
+Stay16 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(6, 10, i, 6, 0.2)
+sim2 <- fixedStay(7, 9, i, 6, 0.2)
+Stay16[1,i-1] <- sim1[[1]]*100
+Stay16[2,i-1] <- sim2[[1]]*100
+}
+colnames(Stay16) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("6, 10", "7, 9")
+Stay16 <- data.frame(Combination, Stay16)
+```
+
+
+```{r, include=FALSE}
+Hit16 <- data.frame()
+for(i in 2:11){
+  sim1 <- fixedHit(6, 10, i, 6, 0.2)
+  sim2 <- fixedHit(7, 9, i, 6, 0.2)
+  Hit16[1,i-1] <- sim1[[1]]
+  Hit16[2,i-1] <- sim2[[1]]
+}
+colnames(Hit16) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("6, 10", "7, 9")
+Hit16 <- data.frame(Combination, Hit16)
+```
+
+
+```{r}
+BSrow16<- BSchartRow(Stay16, Hit16, 16)
+colnames(BSrow16) <- c("playerTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+write.csv(Stay16, "Stay16.csv")
+write.csv(Hit16, "Hit16.csv")
+write.csv(BSrow16, "Row16.csv")
+curChart <- rbind(begChart, BSrow16)
+BSrow16 <- BSrow16[,-1]
+BSrow16
+```
+
+##PTotal == 15
+```{r}
+Stay15 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(5, 10, i, 6, 0.2)
+sim2 <- fixedStay(6, 9, i, 6, 0.2)
+sim3 <- fixedStay(7, 8, i, 6, 0.2)
+Stay15[1,i-1] <- sim1[[1]]
+Stay15[2,i-1] <- sim2[[1]]
+Stay15[3,i-1] <- sim3[[1]]
+}
+colnames(Stay15) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("5, 10", "6, 9", "7, 8")
+Stay15 <- data.frame(Combination, Stay15)
+```
+```{r}
+Hit15 <- data.frame()
+
+for(i in 2:11){
+  print("sim1")
+  sim1 <- fixedHit2(5, 10, i, 6, 0.2, curChart)
+  print("sim2")
+  sim2 <- fixedHit2(6, 9, i, 6, 0.2, curChart)
+  print("sim3")
+  sim3 <- fixedHit2(7, 8, i, 6, 0.2, curChart)
+  Hit15[1,i-1] <- sim1[[1]]
+  Hit15[2,i-1] <- sim2[[1]]
+  Hit15[3,i-1] <- sim3[[1]]
+}
+colnames(Hit15) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("5, 10", "6, 9", "7, 8")
+Hit15 <- data.frame(Combination, Hit15)
+colnames(Hit15) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Hit15
+```
+```{r}
+BSrow15<- BSchartRow(Stay15, Hit15, 15)
+colnames(BSrow15) <- c("playerTotal" ,"2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+BSrow15
+Hit15 <- Hit15[,-1]
+```
+```{r}
+write.csv(BSrow15, "Row15.csv")
+curChart <- rbind(begChart, BSrow15, BSrow16)
+```
+
+##PTotal == 14
+```{r}
+Stay14 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(4, 10, i, 6, 0.2)
+sim2 <- fixedStay(5, 9, i, 6, 0.2)
+sim3 <- fixedStay(6, 8, i, 6, 0.2)
+Stay14[1,i-1] <- sim1[[1]]
+Stay14[2,i-1] <- sim2[[1]]
+Stay14[3,i-1] <- sim3[[1]]
+}
+colnames(Stay14) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("4, 10", "5, 9", "6, 8")
+Stay14 <- data.frame(Combination, Stay14)
+colnames(Stay14) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+```
+```{r}
+Hit14 <- data.frame()
+for(i in 2:11){
+  sim1 <- fixedHit2(4, 10, i, 6, 0.2, curChart)
+  sim2 <- fixedHit2(5, 9, i, 6, 0.2, curChart)
+  sim3 <- fixedHit2(6, 8, i, 6, 0.2, curChart)
+  Hit14[1,i-1] <- sim1[[1]]
+  Hit14[2,i-1] <- sim2[[1]]
+  Hit14[3,i-1] <- sim3[[1]]
+}
+colnames(Hit14) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("4, 10", "5, 9", "6, 8")
+Hit14 <- data.frame(Combination, Hit14)
+colnames(Hit14) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+```
+```{r}
+BSrow14<- BSchartRow(Stay14, Hit14, 14)
+colnames(BSrow14) <- c("playerTotal" ,"2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+write.csv(BSrow14, "Row14.csv")
+curChart <- rbind(begChart, BSrow14, BSrow15, BSrow16)
+```
+
+##PTotal == 13
+```{r}
+Stay13 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(3, 10, i, 6, 0.2)
+sim2 <- fixedStay(4, 9, i, 6, 0.2)
+sim3 <- fixedStay(5, 8, i, 6, 0.2)
+sim4 <- fixedStay(6, 7, i, 6, 0.2)
+Stay13[1,i-1] <- sim1[[1]]
+Stay13[2,i-1] <- sim2[[1]]
+Stay13[3,i-1] <- sim3[[1]]
+Stay13[4,i-1] <- sim4[[1]]
+}
+colnames(Stay13) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("3, 10", "4, 9", "5, 8", "6, 7")
+Stay13 <- data.frame(Combination, Stay13)
+```
+```{r}
+Hit13 <- data.frame()
+for(i in 2:11){
+  sim1 <- fixedHit2(3, 10, i, 6, 0.2, curChart)
+  sim2 <- fixedHit2(4, 9, i, 6, 0.2, curChart)
+  sim3 <- fixedHit2(5, 8, i, 6, 0.2, curChart)
+  sim4 <- fixedHit2(6, 7, i, 6, 0.2, curChart)
+  Hit13[1,i-1] <- sim1[[1]]
+  Hit13[2,i-1] <- sim2[[1]]
+  Hit13[3,i-1] <- sim3[[1]]
+  Hit13[4,i-1] <- sim4[[1]]
+}
+colnames(Hit13) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("3, 10", "4, 9", "5, 8", "6, 7")
+Hit13 <- data.frame(Combination, Hit13)
+colnames(Hit13) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+```
+```{r}
+BSrow13<- BSchartRow(Stay13, Hit13, 13)
+colnames(BSrow13) <- c("playerTotal" ,"2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+write.csv(BSrow13, "Row13.csv")
+curChart <- rbind(begChart, BSrow13, BSrow14, BSrow15, BSrow16)
+```
+
+
+##PTotal == 12
+```{r}
+Stay12 <- data.frame()
+for(i in 2:11){
+sim1 <- fixedStay(2, 10, i, 6, 0.2)
+sim2 <- fixedStay(3, 9, i, 6, 0.2)
+sim3 <- fixedStay(4, 8, i, 6, 0.2)
+sim4 <- fixedStay(5, 7, i, 6, 0.2)
+Stay12[1,i-1] <- sim1[[1]]
+Stay12[2,i-1] <- sim2[[1]]
+Stay12[3,i-1] <- sim3[[1]]
+Stay12[4,i-1] <- sim4[[1]]
+}
+colnames(Stay12) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("2, 10", "3, 9", "4, 8", "5, 7")
+Stay12 <- data.frame(Combination, Stay12)
+colnames(Stay12) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+```
+
+
+##PTotal=12
+```{r}
+Hit12 <- data.frame()
+for(i in 2:11){
+  sim1 <- fixedHit2(2, 10, i, 6, 0.2, curChart)
+  sim2 <- fixedHit2(3, 9, i, 6, 0.2, curChart)
+  sim3 <- fixedHit2(4, 8, i, 6, 0.2, curChart)
+  sim4 <- fixedHit2(5, 7, i, 6, 0.2, curChart)
+  Hit12[1,i-1] <- sim1[[1]]
+  Hit12[2,i-1] <- sim2[[1]]
+  Hit12[3,i-1] <- sim3[[1]]
+  Hit12[4,i-1] <- sim4[[1]]
+}
+colnames(Hit12) <- c("2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+Combination <- c("2, 10", "3, 9", "4, 8", "5, 7")
+Hit12 <- data.frame(Combination, Hit12)
+colnames(Hit12) <- c("Combination","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+```
+
+```{r}
+BSrow12<- BSchartRow(Stay12, Hit12, 12)
+colnames(BSrow12) <- c("playerTotal" ,"2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+write.csv(BSrow12, "Row12.csv")
+```
+
+##Simulating Soft Hands
+```{r}
+SoftChart <- data.frame("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+colnames(SoftChart) <- c("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+for(j in 1:8){
+SoftChart[i, 1] <- i+12
+StayX <- data.frame("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+colnames(StayX) <- c("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+HitX <- data.frame("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+colnames(HitX) <- c("SoftTotal","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+StayX[j, 1] <- j+12
+HitX[j, 1] <- j+12
+for(i in 2:11){
+simStay <- fixedStay(11, j+1, i)
+StayX[j,i] <- simStay[[1]]
+simHit <- fixedHit(11, j+1, i)
+HitX[j,i] <- simHit[[1]]
+}
+BSrowX<- BSchartRow(StayX, HitX, j+12)
+SoftChart <- rbind(SoftChart, BSrowX) 
+}
+```
+
+##Simulating Basic Strategy, only hit and Stand, disregard if hand is hard or soft
+```{r}
+onlyHitStandNoSoft <- simBSGame(100000, 6, soft = 0, dDown = 0, split = 0)
+Sim_HitStand <- onlyHitStandNoSoft %>% group_by(outcome) %>% summarise(numGames=n(),                                                        Probability = n/nrow(onlyHitStandNoSoft))
+Expectation <- Sim_HitStand[3,3]-Sim_HitStand[1,3]
+Expectation
+```
+```{r}
+-0.0553
+write.csv(onlyHitStandNoSoft, "BS_Control.csv", row.names=FALSE)
+```
+
+##Simulating Basic Strategy, only hit and Stand, difference between soft and hard totals.
+
+```{r}
+onlyHitStandwithSoft <- simBSGame(100000, 6, soft = 1, dDown = 0, split = 0)
+Sim_HitStandSoft <- onlyHitStandwithSoft %>% group_by(outcome) %>% summarise(numGames=n(),                                                        Probability = n/nrow(onlyHitStandwithSoft))
+Expectation <- Sim_HitStandSoft[3,3]-Sim_HitStandSoft[1,3]
+Expectation
+```
+```{r}
+-0.0528
+0.0025 gained
+write.csv(onlyHitStandwithSoft, "BS_SoftIncluded.csv", row.names=FALSE)
+```
+
+##Simulating Basic Strategy, allowing all options/distictions expect splitting
+
+```{r}
+dDownwithSoft <- simBSGame(100000, 6, soft = 1, dDown = 1, split = 0)
+Sim_dDownandSoft <- dDownwithSoft %>% group_by(outcome) %>% summarise(numGames=n(),                                                        Probability = n/nrow(dDownwithSoft))
+```
+```{r}
+-0.0586
+write.csv(dDownwithSoft, "BS_dDown_SoftIncluded.csv", row.names=FALSE)
+```
+
+```{r}
+dDownNoSoft <- simBSGame(100000, 6, soft = 0, dDown = 1, split = 0)
+Sim_dDownOnly <- dDownNoSoft %>% group_by(outcome) %>% summarise(numGames=n(),                                                        Probability = n/nrow(dDownNoSoft))
+Expectation <- Sim_dDownOnly[3,3]-Sim_dDownOnly[1,3]
+Expectation
+```
+```{r}
+-0.0448
+0.0105 gained
+write.csv(dDownNoSoft, "BS_dDown_NoSoft.csv", row.names=FALSE)
+```
+
+#Simulating Basic Strategy, Adding splits but no soft distinction or double downs
+```{r}
+onlyHitStandSplit <- simBSGame(100000, 6, soft = 0, dDown = 0, split = 1)
+Sim_HitStandSplit <- onlyHitStandSplit %>% group_by(outcome) %>% summarise(numGames=n(), Probability = n/nrow(onlyHitStandSplit))
+Expectation <- Sim_HitStandSplit[3,3]-Sim_HitStandSplit[1,3]
+Expectation
+```
+```{r}
+-0.0548
+0.0005 gained
+write.csv(onlyHitStandSplit, "BS_SplitOnly.csv", row.names=FALSE)
+```
+
+##Simulating Basic Strategy, allowing all distictions
+
+```{r}
+FullBS <- simBSGame(100000, 6, soft = 1, dDown = 1, split = 1)
+Sim_FullBasicStrategy <- FullBS %>% group_by(outcome) %>% summarise(numGames=n(),                                                        Probability = numGames/nrow(FullBS))
+Expectation <- Sim_FullBasicStrategy[3,3]-Sim_FullBasicStrategy[1,3]
+Expectation
+```
+
+```{r}
+-0.0239
+6.04 gained from mimick
+write.csv(FullBS, "FullBS.csv", row.names=FALSE)
+```
+
+```{r}
+
+Sim_HitStand <- BS_Control %>% group_by(outcome) %>% summarise(numGames =n(),Probability = round(numGames/nrow(BS_Control)*100,2))
+
+Sim_HitStandSoft <- onlyHitStandwithSoft %>% group_by(outcome) %>% summarise(numGames=n(),Probability = round(numGames/nrow(onlyHitStandwithSoft)*100,2))
+
+Sim_dDownOnly <- dDownNoSoft %>% group_by(outcome) %>% summarise(numGames=n(),Probability = round(numGames/nrow(dDownNoSoft)*100,2))
+
+Sim_SplitOnly <- onlyHitStandSplit %>% group_by(outcome) %>% summarise(numGames=n(), Probability = round(numGames/nrow(onlyHitStandSplit)*100,2))
+
+Sim_FullBasicStrategy <- FullBS %>% group_by(outcome) %>% summarise(numGames=n(), Probability = round(numGames/nrow(FullBS)*100,2))
+
+write.csv(Sim_HitStand, "Sim_HitStand.csv", row.names=FALSE)
+write.csv(Sim_HitStandSoft, "Sim_HitStandSoft.csv", row.names=FALSE)
+write.csv(Sim_dDownOnly, "Sim_dDownOnly.csv", row.names=FALSE)
+write.csv(Sim_SplitOnly, "Sim_SplitOnly.csv", row.names=FALSE)
+write.csv(Sim_FullBasicStrategy, "Sim_FullBasicStrategy.csv", row.names=FALSE)
+```

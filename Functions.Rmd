@@ -1,0 +1,1043 @@
+---
+title: "Functions"
+output: html_document
+date: "2024-03-12"
+---
+
+---
+title: "Functions"
+output: html_document
+date: "2024-01-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(GGally)
+library(knitr)
+library(gridExtra)
+```
+
+## Making the deck
+```{r}
+makeOD <- function(){
+suits <- c("Spades", "Clubs", "Diamonds", "Hearts")
+Suit <- unlist(map(suits, rep, 13))
+ranks <- c("A","K", "Q", "J", "10", "9", "8",
+           "7", "6", "5", "4", "3", "2")
+Rank <- rep(ranks, 4)
+values <-c(11, 10, 10, 10, 10:2)
+Value <- rep(values, 4)
+ordered_deck <- data.frame(Rank, Suit, Value)
+return(ordered_deck)
+}
+```
+
+## Deck Functions
+```{r}
+shuffle <- function(deck) {
+  sample_n(deck, nrow(deck), replace = F)
+}
+
+##Supposedly, more decks means an increase in house advantage
+cloneDeck <- function(deck, n){
+  deck1 <- deck
+  numClones <- n-1
+  for(i in 1:numClones){
+    deck <- rbind(deck, deck1) 
+  }
+  return(deck)
+}
+
+penetration <- function(shufDeck, proportion){
+  nrow <- nrow(shufDeck)
+  lastp <- nrow-ceiling(nrow*proportion)
+  pen <- sample((nrow/2):lastp, 1)
+  shoeEnd <- tail(shufDeck, nrow-pen)
+  shufDeck <- head(shufDeck, pen)
+  deck_p <- list(shufDeck, shoeEnd)
+  return(deck_p) 
+}
+```
+
+##Game functions
+```{r}
+deal <- function(playerHand, dealerHand, shufDeck, shoe) {
+  #Blackjack is dealt a specific way (one to player, one to dealer, 
+  #one to player, one to dealer), which may not be necessary to capture in 
+  #the simulation but it makes it feel more real
+  newValues <- draw(playerHand, shufDeck, shoe) 
+  playerHand <- newValues[[1]]
+  shufDeck <- newValues[[2]]
+  shoe <- newValues[[3]]
+  
+  newValues <- draw(dealerHand, shufDeck, shoe)
+  dealerHand <- newValues[[1]]
+  shufDeck <- newValues[[2]]
+  shoe <- newValues[[3]]
+  
+  newValues <- draw(playerHand, shufDeck, shoe) 
+  playerHand <- newValues[[1]]
+  shufDeck <- newValues[[2]]
+  shoe <- newValues[[3]]
+  
+  newValues <- draw(dealerHand, shufDeck, shoe)
+  dealerHand <- newValues[[1]]
+  shufDeck <- newValues[[2]]
+  shoe <- newValues[[3]]
+  
+  ##Slight chance to be dealt double aces, so make sure they don't bust
+  dealerHand <- aceCheck(dealerHand)
+  
+  dealtHands <- list(playerHand, dealerHand, shufDeck, shoe)
+  return(dealtHands)
+}
+
+draw <- function(hand, deck, shoe) {
+  if(nrow(deck)==0){
+    newCard <- shoe[1,]
+    hand <- rbind(hand, newCard)
+    shoe <- shoe[-1,]
+  }else{
+  newCard <- deck[1,]
+  hand <- rbind(hand, newCard)
+  deck <- deck[-1,]
+  } 
+  newValues <- list(hand, deck, shoe)
+  return(newValues)
+}
+
+##If a hand has an ace (valued at 11) and a total value over 21,
+##then the ace should be valued at 1. 
+aceCheck <- function(hand){
+  handTotal <- sum(hand$Value)
+  if(nrow(hand)<=1){
+    return(hand)
+  }else if(hand[1,]$Value=="11" && hand[2,]$Value=="11"){
+    hand[2,3] <- 1
+  }else if(handTotal >21){
+  if((any(hand==11))==TRUE){
+    rowAce <- match(11, hand$Value)
+    hand[rowAce,]$Value <- 1
+    }
+  }
+  return(hand)
+}
+
+dealerTurn <- function(hand, deck, shoe){
+  handTotal <- sum(hand$Value)
+  while(handTotal<17){
+    newValues <- draw(hand, deck, shoe) 
+    hand <- newValues[[1]]
+    deck <- newValues[[2]]
+    shoe <- newValues[[3]]
+    hand <- aceCheck(hand)
+    handTotal <- sum(hand$Value)
+  }
+  ##A soft hand is any hand that contains an ace that is counted as 11.
+#It is common practice for casinos to allow dealers to hit on a soft 17
+#Apparently, this increases the house advantage
+#This doesn't have to be a while command, since no matter what card is drawn,
+#The total will always be 18 or over, and thus a stay
+  if(handTotal==17 && any(hand == 11) == TRUE){
+    newValues <- draw(hand, deck, shoe) 
+    hand <- newValues[[1]]
+    deck <- newValues[[2]]
+    shoe <- newValues[[3]]
+    hand <- aceCheck(hand)
+    while(handTotal<17){
+    newValues <- draw(hand, deck, shoe) 
+    hand <- newValues[[1]]
+    deck <- newValues[[2]]
+    shoe <- newValues[[3]]
+    hand <- aceCheck(hand)
+    handTotal <- sum(hand$Value)
+  }
+  }
+  endTurnValues <- list(hand, deck, shoe)
+  return(endTurnValues)
+}
+
+outcomeHands <- function(pHandT, dHandT){
+  if(dHandT>21){
+    outcome <- "Win"
+    reason <- "Dealer Bust"
+    result <- list(outcome, reason)
+    return(result)
+  } else if (pHandT > dHandT){
+    outcome <- "Win"
+    reason <- "Better hand"
+    result <- list(outcome, reason)
+    return(result)
+  } else if (pHandT < dHandT){
+    outcome <- "Loss"
+    reason <- "Worse hand"
+    result <- list(outcome, reason)
+    return(result)
+    } else{
+    outcome <- "Push"
+    reason <- "Tied hands"
+    result <- list(outcome, reason)
+    return(result)
+    }
+}
+```
+
+##Mimic the dealer game
+```{r}
+simMimicDealer <- function(numSims, numDecks){
+mimicStats <-data.frame()
+##Make deck, shuffle and determine shoe
+ordered_deck <- makeOD()
+newDeck <- cloneDeck(ordered_deck, numDecks)
+shufDeck <- shuffle(newDeck)
+deck_p <- penetration(shufDeck, 0.20)
+shufDeck <- deck_p[[1]]
+shoe <- deck_p[[2]]
+for(i in 1:numSims){
+    endRound <- mimicDealer(shufDeck, shoe)
+    finalRow <- compileOutcome(endRound)
+    mimicStats <- rbind(mimicStats, finalRow)
+    shufDeck <-endRound[[5]]
+    shoe <- endRound[[6]]
+    ##If the deck ever reaches the shoe, create a new shuffled deck after the round has ended.
+  if(nrow(shufDeck)==0){
+    shufDeck <- shuffle(newDeck)
+    deck_p <- penetration(shufDeck, 0.20)
+    shufDeck <- deck_p[[1]]
+    shoe <- deck_p[[2]]
+    ##Otherwise update deck based on round
+  }
+}
+return(mimicStats)
+}
+
+mimicDealer <- function(shufDeck, shoe){
+  playerHand <- data.frame()
+  dealerHand <- data.frame()
+  dealtHands <- deal(playerHand, dealerHand, shufDeck, shoe)
+  playerHand <- dealtHands[[1]]
+  dealerHand <- dealtHands[[2]]
+  shufDeck <- dealtHands[[3]]
+  shoe <- dealtHands[[4]]
+  pHandT <- sum(playerHand$Value)
+  dHandT <- sum(dealerHand$Value)
+  ## Blackjack check
+  #if the player or dealer has an opening hand that contains both an Ace and a
+  #card valued at 10 (Face cards and 10's), they automatically win. 
+  #If both the player and dealer are dealt Blackjack, it's a push. 
+  #Whether or not the game ends if the dealer is dealt a blackjack depends 
+  #on the rules of the casino (since the dealer may peek at the face down card,
+  #then turn it face up if it completes a blackjack)
+  if(pHandT == 21){
+    if(dHandT == 21){
+      outcome <- "Push"
+      reason <- "Double Blackjacks"
+    }else{
+      outcome <- "Win"
+      reason <- "Blackjack"
+    }
+  }else if(dHandT == 21){
+    outcome <- "Loss"
+    reason <- "Dealer Blackjack"
+  } else{
+  ## if no BJ then play game normally
+  ##Player turn (mimicking dealer's turn)
+  endTurnValues <- dealerTurn(playerHand, shufDeck, shoe)
+  playerHand <- endTurnValues[[1]]
+  shufDeck <- endTurnValues[[2]]
+  shoe <- endTurnValues[[3]]
+  pHandT <- sum(playerHand$Value)
+  ##if player busted, dealer wins without taking turn, 
+  if(pHandT>21){
+    outcome <- "Loss"
+    reason <- "Bust"
+  } else{
+  #otherwise, dealer takes a turn
+  endTurnValues <- dealerTurn(dealerHand, shufDeck, shoe)
+  dealerHand <- endTurnValues[[1]]
+  shufDeck <- endTurnValues[[2]]
+  shoe <- endTurnValues[[3]]
+  dHandT <- sum(dealerHand$Value)
+  outcomes <- outcomeHands(pHandT, dHandT)
+  outcome <- outcomes[[1]]
+  reason <- outcomes[[2]]
+  }
+  }
+  endRound <- list(playerHand, dealerHand, outcome, reason, shufDeck, shoe)
+  return(endRound)
+}
+```
+
+##Fixed Stay
+```{r}
+fixedStay <- function(pCard1, pCard2, dCard1, numDecks, deckPenetration){
+OD <- makeOD()
+OD_Stay <- shuffle(cloneDeck(OD, numDecks))
+deck_p <- penetration(OD_Stay, deckPenetration)
+OD_Stay <- deck_p[[1]]
+shoe <- deck_p[[2]]
+playerHand <- data.frame()
+dHand <- data.frame()
+
+C1Row <- match(pCard1, OD_Stay$Value)
+C1 <- OD_Stay[C1Row,]
+playerHand <- rbind(playerHand, C1)
+OD_Stay <- OD_Stay[-C1Row,]
+
+C2Row <- match(pCard2, OD_Stay$Value)
+C2 <- OD_Stay[C2Row,]
+playerHand <- rbind(playerHand, C2)
+OD_Stay <- OD_Stay[-C2Row,]
+
+C3Row <- match(dCard1, OD_Stay$Value)
+C3 <- OD_Stay[C3Row,]
+dHand <- rbind(dHand, C3)
+OD_Stay <- OD_Stay[-C3Row,]
+
+pHandT <- sum(playerHand$Value)
+fixedStandResults <- data.frame()
+for(i in 1:1000){
+  SD1 <- shuffle(OD_Stay)
+  dealerHand <- dHand
+  endTurnValues <- dealerTurn(dealerHand, SD1, shoe)
+  dealerHand <- endTurnValues[[1]]
+  dHandT <- sum(dealerHand$Value)
+  outcomes <- outcomeHands(pHandT, dHandT)
+  outcome <- outcomes[[1]]
+  reason <- outcomes[[2]]
+  outcomeList <- list(playerHand, dealerHand, outcome, reason)
+  finalRow <- compileOutcome(outcomeList)
+  fixedStandResults <- rbind(fixedStandResults, finalRow)
+}
+Results <- fixedStandResults %>% group_by(outcome) %>% summarise(n=n(),
+                                                           prob_of_occuring = n/1000)
+WinResults <- fixedStandResults %>% group_by(outcome) %>% summarise(n=n(),
+                                                           prob_of_occuring = n/1000) %>% filter(outcome=="Win")
+LossResults <-fixedStandResults %>% group_by(outcome) %>% summarise(n=n(),
+                                                           prob_of_occuring = n/1000) %>% filter(outcome=="Loss")
+WinStay <- round(WinResults[1,3], 4)
+LoseStay <- round(LossResults[1,3], 4)
+expectation <- WinStay-LoseStay
+probList <- list(expectation, WinStay, LoseStay)
+listRes <- list(expectation, probList, fixedStandResults)
+return(listRes)
+}
+```
+
+##Fixed Hit
+```{r}
+fixedHit <- function(pCard1, pCard2, dCard1, numDecks, deckPenetration){
+OD <- makeOD()
+OD_Hit <- shuffle(cloneDeck(OD, numDecks))
+deck_p <- penetration(OD_Hit, deckPenetration)
+OD_Hit <- deck_p[[1]]
+shoe <- deck_p[[2]]
+pHand <- data.frame()
+dHand <- data.frame()
+##Create hands and remove specified cards from deck, then add them to their respective hands
+C1Row <- match(pCard1, OD_Hit$Value)
+C1 <- OD_Hit[C1Row,]
+pHand <- rbind(pHand, C1)
+OD_Hit <- OD_Hit[-C1Row,]
+
+C2Row <- match(pCard2, OD_Hit$Value)
+C2 <- OD_Hit[C2Row,]
+pHand <- rbind(pHand, C2)
+OD_Hit <- OD_Hit[-C2Row,]
+
+C3Row <- match(dCard1, OD_Hit$Value)
+C3 <- OD_Hit[C3Row,]
+dHand <- rbind(dHand, C3)
+OD_Hit <- OD_Hit[-C3Row,]
+
+fullResults <- data.frame()
+probList <- data.frame()
+numCards <- numDecks*52
+for(i in 2:11){
+  ##For each possible card value, find the first row that matches that value in the deck dataframe
+  ##Add that card to the hand, then create a new deck without the specified card
+  rowCard <- match(i, OD_Hit$Value)
+  playerHand <- rbind(pHand, OD_Hit[rowCard,])
+  drawnCard <- i
+  HitOD <- OD_Hit[-rowCard,]
+  playerHand <- aceCheck(playerHand)
+  pHandT <- sum(playerHand$Value)
+  numLeft <- numLeftinDeck(playerHand, dHand, i, numDecks)
+  ProbDraw <- numLeft/(numCards-3)
+  ##If the player busts after drawing, it is an automatic loss
+  if (pHandT>21){
+    outcome <- "Loss"
+    reason <- "Bust"
+    dHandT <- 0
+    dRanks <- "Irelevant"
+    RowBust <- data.frame(drawnCard, pHandT, outcome, reason, dHandT, dRanks)
+    fullResults <- rbind(fullResults, RowBust)
+    ProbWinWithCard <- 0
+    ProbLoseWithCard <- 1
+  } else{
+  for(j in 1:2000){
+  ##Otherwise, simulate games where the player stands on that hand.
+  shufHitOD <- shuffle(HitOD)
+  dealerHand <- dHand
+  endTurnValues <- dealerTurn(dealerHand, shufHitOD, shoe)
+  dealerHand <- endTurnValues[[1]]
+  dHandT <- sum(dealerHand$Value)
+  dRanks <- compileRanks(dealerHand)
+  outcomes <- outcomeHands(pHandT, dHandT)
+  outcome <- outcomes[[1]]
+  reason <- outcomes[[2]]
+  Rowfull <- data.frame(drawnCard, pHandT, outcome, reason, dHandT, dRanks)
+  fullResults <- rbind(fullResults, Rowfull)
+  }
+  WinResults <- fullResults %>% group_by(outcome, drawnCard) %>% summarise(N = n(), 
+                                                                         Probability = N/2000) %>% filter(drawnCard == i, outcome=="Win") 
+  ProbWinWithCard <- as.double(WinResults[1,4])
+  if(pHandT==21){
+    ProbLoseWithCard <- 0
+  }else{
+    LossResults <- fullResults %>% group_by(outcome, drawnCard) %>% summarise(N = n(), 
+                                                                         Probability = N/2000) %>% filter(drawnCard == i, outcome=="Loss")
+    ProbLoseWithCard <- as.double(LossResults[1,4])
+  }
+  }
+  Expectation <- ProbWinWithCard-ProbLoseWithCard
+  PAi <- ProbDraw*Expectation
+  Rowi <- data.frame(drawnCard, ProbDraw, Expectation, PAi)
+  probList <- rbind(probList, Rowi)
+}
+colnames(probList) <- c("drawnCard", "ProbDraw", "Expectation", "PAi")
+ExpectationHit <- round(sum(probList$PAi), 4)
+listRes <- list(ExpectationHit, probList, fullResults)
+
+return(listRes)
+}
+
+```
+
+##Fixed Hit 2, one that allows the player to keep hitting based on previously created rows
+```{r}
+fixedHit2 <- function(pCard1, pCard2, dCard1, numDecks, deckPenetration, curChart){
+OD <- makeOD()
+OD_Hit <- shuffle(cloneDeck(OD, numDecks))
+deck_p <- penetration(OD_Hit, deckPenetration)
+OD_Hit <- deck_p[[1]]
+shoe <- deck_p[[2]]
+pHand <- data.frame()
+dHand <- data.frame()
+##Create hands and remove specified cards from deck, then add them to their respective hands
+C1Row <- match(pCard1, OD_Hit$Value)
+C1 <- OD_Hit[C1Row,]
+pHand <- rbind(pHand, C1)
+OD_Hit <- OD_Hit[-C1Row,]
+
+C2Row <- match(pCard2, OD_Hit$Value)
+C2 <- OD_Hit[C2Row,]
+pHand <- rbind(pHand, C2)
+OD_Hit <- OD_Hit[-C2Row,]
+
+C3Row <- match(dCard1, OD_Hit$Value)
+C3 <- OD_Hit[C3Row,]
+dHand <- rbind(dHand, C3)
+OD_Hit <- OD_Hit[-C3Row,]
+
+fullResults <- data.frame()
+probList <- data.frame()
+numCards <- numDecks*52
+for(i in 2:11){
+  ##For each possible card value, find the first row that matches that value in the deck dataframe
+  ##Add that card to the hand, then create a new deck without the specified card
+  rowCard <- match(i, OD_Hit$Value)
+  pHandNew <- rbind(pHand, OD_Hit[rowCard,])
+  drawnCard <- i
+  HitOD <- OD_Hit[-rowCard,]
+  pHandNew <- aceCheck(pHandNew)
+  pHandT <- sum(pHandNew$Value)
+  numLeft <- numLeftinDeck(pHandNew, dHand, i, numDecks)
+  ProbDraw <- numLeft/(numCards-3)
+  ##If the player busts after drawing, it is an automatic loss
+  if (pHandT>21){
+    outcome <- "Loss"
+    reason <- "Bust"
+    dHandT <- 0
+    dRanks <- "Irelevant"
+    RowBust <- data.frame(drawnCard, pHandT, outcome, reason, dHandT, dRanks)
+    fullResults <- rbind(fullResults, RowBust)
+    Expectation <- -1
+    PAi <- ProbDraw*Expectation
+    Rowi <- data.frame(drawnCard, ProbDraw, Expectation, PAi)
+    probList <- rbind(probList, Rowi)
+  } else{
+  #Many other totals have many combinations of cards that sum to it, so 1000 is adequate
+  for(j in 1:1000){
+    playerHand <- pHandNew
+    pHandT <- sum(playerHand$Value)
+    bPlay <- oPlay(playerHand, dHand, curChart)
+    shufHitOD <- shuffle(HitOD)
+  #Check if drawn card reached a total we know should be hit
+  if(bPlay=="H"){
+        while( ((bPlay=="H")==TRUE) && pHandT <= 21){
+          endTurnValues <- draw(playerHand, shufHitOD, shoe)
+          playerHand <- endTurnValues[[1]]
+          shufHitOD <- endTurnValues[[2]]
+          shoe <- endTurnValues[[3]]
+          playerHand <- aceCheck(playerHand)
+          pHandT <- sum(playerHand$Value)
+          bPlay <- oPlay(playerHand, dHand, curChart)
+        }
+  }
+  #Check for bust
+  if(pHandT>21){
+      outcome <- "Loss"
+      reason <- "Bust"
+      dHandT <- sum(dHand$Value)
+      dRanks <- compileRanks(dHand)
+  #Otherwise, dealer takes a turn
+  }else{
+  dealerHand <- dHand
+  endTurnValues <- dealerTurn(dealerHand, shufHitOD, shoe)
+  dealerHand <- endTurnValues[[1]]
+  shufHitOD <- endTurnValues[[2]]
+  shoe <- endTurnValues[[3]]
+  dHandT <- sum(dealerHand$Value)
+  dRanks <- compileRanks(dealerHand)
+  outcomes <- outcomeHands(pHandT, dHandT)
+  outcome <- outcomes[[1]]
+  reason <- outcomes[[2]]
+  #Compile all data and add row to final dataset
+  Rowfull <- data.frame(drawnCard, pHandT, outcome, reason, dHandT, dRanks)
+  fullResults <- rbind(fullResults, Rowfull)
+  }
+  }
+  #Calculate win probability
+  WinResults <- fullResults %>% filter(drawnCard == i, outcome=="Win") %>% group_by(outcome, drawnCard) %>% summarise(N = n(), Probability = N/1000)
+  ProbWinWithCard <- as.double(WinResults[1,4])
+  #Calculate loss probability
+  if(pHandT==21){
+    ProbLoseWithCard <- 0
+  }else{
+    LossResults <- fullResults %>% filter(drawnCard == i, outcome=="Loss") %>% group_by(outcome, drawnCard) %>% summarise(N = n(),Probability = N/1000)
+    ProbLoseWithCard <- as.double(LossResults[1,4])
+  }
+  #Calculate expectation and add it to probability dataset
+  Expectation <- ProbWinWithCard-ProbLoseWithCard
+  PAi <- ProbDraw*Expectation
+  Rowi <- data.frame(drawnCard, ProbDraw, Expectation, PAi)
+  probList <- rbind(probList, Rowi)
+  }
+colnames(probList) <- c("drawnCard", "ProbDraw", "Expectation", "PAi")
+ExpectationHit <- round(sum(probList$PAi), 4)
+listRes <- list(ExpectationHit, probList, fullResults)
+}
+return(listRes)
+}
+```
+
+##Making the Basic Strategy Chart
+```{r}
+BSchartRow <- function(FiltStayX, FiltHitX, pTotal){
+  fRow <- data.frame()
+  fRow[1,1] <- pTotal
+  numCombos <- nrow(FiltStayX)
+for(i in 2:11){
+    weightedProbsStay <- sum(FiltStayX[,i])*(1/numCombos)
+    weightedProbsHit <- sum(FiltHitX[,i])*(1/numCombos)
+ if(weightedProbsStay  < weightedProbsHit){
+   fRow[1,i] <- "H"
+ }else if (weightedProbsStay  > weightedProbsHit){
+   fRow[1,i] <- "S"
+ }
+}
+colnames(fRow) <- c("","2", "3", "4", "5", "6", "7", "8", "9", "10", "A")
+return(fRow)
+}
+```
+
+##Function for finding whether a hand should keep hitting or not based on previous BSChart rows
+```{r}
+oPlay <- function(playHand, dealHand, currentChart){
+  pHandT <- sum(playHand$Value)
+  if(dealHand[1,]$Value==1){
+    D_upcard <- 11
+  } else{
+    D_upcard <- dealHand[1,]$Value
+  }
+  
+  if(pHandT <= 11){
+    play <- "H"
+  }else if(pHandT >= 17){
+    play <- "S"
+  } else{
+    Strat <- currentChart %>% filter(playerTotal==pHandT)
+    play <- Strat[1,D_upcard]
+    }
+  return(play)
+}
+```
+
+##Basic Strategy Charts, according to sources
+```{r}
+Total <- c(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+a <- c("H","H","H","H","H","H","S","S","S","S","S")
+b <- c("H","H","H","H","H","H","S","S","S","S","S")
+c <- c("H","H","H","H","H","S","S","S","S","S","S")
+d <- c("H","H","H","H","H","S","S","S","S","S","S")
+e <- c("H","H","H","H","H","S","S","S","S","S","S")
+f <- c("H","H","H","H","H","H","H","H","H","H","S")
+g <- c("H","H","H","H","H","H","H","H","H","H","S")
+h <- c("H","H","H","H","H","H","H","H","H","H","S")
+i <- c("H","H","H","H","H","H","H","H","H","H","S")
+j <- c("H","H","H","H","H","H","H","H","H","H","S")
+noStratHardOfficial <- data.frame(Total, a, b, c, d, e, f, g, h, i, j)
+colnames(noStratHardOfficial)<-c("HardTotal", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+sTotal <- c(13, 14, 15, 16, 17, 18, 19, 20)
+a <- c("H","H","H","H","H","S","S","S")
+b <- c("H","H","H","H","H","S","S","S")
+c <- c("H","H","H","H","H","S","S","S")
+d <- c("H","H","H","H","H","S","S","S")
+e <- c("H","H","H","H","H","S","S","S")
+f <- c("H","H","H","H","H","S","S","S")
+g <- c("H","H","H","H","H","S","S","S")
+h <- c("H","H","H","H","H","H","S","S")
+i <- c("H","H","H","H","H","H","S","S")
+j <- c("H","H","H","H","H","H","S","S")
+noStratSoftOfficial <- data.frame(sTotal, a, b, c, d, e, f, g, h, i, j)
+colnames(noStratSoftOfficial)<-c("SoftTotal", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+HardTotal <- c(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+a <- c("H","H","H","D","D","H","S","S","S","S","S")
+b <- c("H","H","D","D","D","H","S","S","S","S","S")
+c <- c("H","H","D","D","D","S","S","S","S","S","S")
+d <- c("H","H","D","D","D","S","S","S","S","S","S")
+e <- c("H","H","D","D","D","S","S","S","S","S","S")
+f <- c("H","H","H","D","D","H","H","H","H","H","S")
+g <- c("H","H","H","D","D","H","H","H","H","H","S")
+h <- c("H","H","H","D","D","H","H","H","H","H","S")
+i <- c("H","H","H","H","D","H","H","H","H","H","S")
+j <- c("H","H","H","H","D","H","H","H","H","H","S")
+BSHardOfficial <- data.frame(HardTotal, a, b, c, d, e, f, g, h, i, j)
+colnames(BSHardOfficial)<-c("HardTotal", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+SoftTotal <- c(13, 14, 15, 16, 17, 18, 19, 20)
+a <- c("H","H","H","H","D","S","S","S")
+b <- c("H","H","H","H","D","D","S","S")
+c <- c("D","D","D","D","D","D","S","S")
+d <- c("D","D","D","D","D","D","S","S")
+e <- c("D","D","D","D","D","D","D","S")
+f <- c("H","H","H","H","H","S","S","S")
+g <- c("H","H","H","H","H","S","S","S")
+h <- c("H","H","H","H","H","H","S","S")
+i <- c("H","H","H","H","H","H","S","S")
+j <- c("H","H","H","H","H","S","S","S")
+BSSoftOfficial <- data.frame(SoftTotal, a, b, c, d, e, f, g, h, i, j)
+colnames(BSSoftOfficial)<-c("SoftTotal", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+PairOf_ <- c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+a <- c("Y","Y","N","N","Y","Y","Y","Y","N","Y")
+b <- c("Y","Y","N","N","Y","Y","Y","Y","N","Y")
+c <- c("Y","Y","N","N","Y","Y","Y","Y","N","Y")
+d <- c("Y","Y","Y","N","Y","Y","Y","Y","N","Y")
+e <- c("Y","Y","Y","N","Y","Y","Y","Y","N","Y")
+f <- c("Y","Y","N","N","N","Y","Y","N","N","Y")
+g <- c("N","N","N","N","N","N","Y","Y","N","Y")
+h <- c("N","N","N","N","N","N","Y","Y","N","Y")
+i <- c("N","N","N","N","N","N","Y","N","N","Y")
+j <- c("N","N","N","N","N","N","Y","N","N","Y")
+BSSplitOfficial <- data.frame(PairOf_, a, b, c, d, e, f, g, h, i, j)
+colnames(BSSplitOfficial)<-c("PairOf_", 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+```
+```{r}
+write.csv(BSSplitOfficial, "BSSplitOfficial.csv")
+write.csv(BSSoftOfficial, "BSSoftOfficial.csv")
+write.csv(BSHardOfficial, "BSHardOfficial.csv")
+write.csv(noStratHardOfficial, "noStratHardOfficial.csv")
+write.csv(noStratSoftOfficial, "noStratSoftOfficial.csv")
+```
+
+##Function for reading the optimal play for a given situtation for a given strategy chart
+```{r}
+optimalPlay <- function(playerHand, dealerHand, soft, dDown){
+  if(dealerHand[1,]$Value==1){
+    dealerUpCard <- 11
+  }else{
+    dealerUpCard <- dealerHand[1,]$Value
+  }
+  pTotal <- sum(playerHand$Value)
+  if(pTotal<=8){
+    bestPlay <- "H"
+  } else if(pTotal>=20){
+    bestPlay <- "S"
+  } else if(playerHand[1,]$Rank=="A" && playerHand[2,]$Rank=="A"){
+    bestPlay <- "H"
+  }else if(soft==1){
+      if(dDown==1){
+        if((any(playerHand==11))==TRUE){
+          Strats <- BSSoftOfficial %>% filter(SoftTotal==pTotal)
+          bestPlay <- Strats[1, dealerUpCard]
+        }else if((any(playerHand==11))==FALSE){
+          if(pTotal>=17){
+            bestPlay<-"S"
+          }else{
+            Strats <- BSHardOfficial %>% filter(HardTotal==pTotal)
+            bestPlay <- Strats[1, dealerUpCard]  
+          }
+        }
+      }else if(dDown==0){
+        if((any(playerHand==11))==TRUE){
+          Strats <- noStratSoftOfficial %>% filter(SoftTotal==pTotal)
+          bestPlay <- Strats[1, dealerUpCard]
+        }else if((any(playerHand==11))==FALSE){
+          if(pTotal>=17){
+            bestPlay<-"S"
+          }else{
+            Strats <- noStratHardOfficial %>% filter(HardTotal==pTotal)
+            bestPlay <- Strats[1, dealerUpCard]  
+          }
+        }
+      }
+  }else if(soft==0){
+    if(pTotal>=17){
+        bestPlay<-"S"
+    }else if(dDown==1){
+      Strats <- BSHardOfficial %>% filter(HardTotal==pTotal)
+      bestPlay <- Strats[1, dealerUpCard]
+    }else if(dDown==0){
+      Strats <- noStratHardOfficial %>% filter(HardTotal==pTotal)
+      bestPlay <- Strats[1, dealerUpCard]  
+    }
+  }
+  return(bestPlay)
+  }
+
+
+splitCheck <- function(playerHand, dealerHand, split){
+  if((playerHand[1,]$Rank == playerHand[2,]$Rank) && split==1){
+    Strats <- BSSplitOfficial %>% filter(PairOf_==playerHand[1,]$Value)
+    sCheck <- Strats[1, dealerHand[1,]$Value]
+    return(sCheck)
+  }
+  else{
+    return("N")
+  }
+  
+}
+
+
+```
+
+##Function that plays a turn based on what the best play was
+```{r}
+optimalTurn <- function(playerHand, dealerHand, BSDeck, shoe, bestPlay, soft, dDown){
+  pHandT <- sum(playerHand$Value)
+  dDownCheck <- FALSE
+  if(bestPlay=="D"){
+      #Double Down, AKA, Hit once and end round
+      dDownCheck <- TRUE
+      endTurnValues <- draw(playerHand, BSDeck, shoe)
+      playerHand <- endTurnValues[[1]]
+      playerHand <- aceCheck(playerHand)
+      BSDeck <- endTurnValues[[2]]
+      shoe <- endTurnValues[[3]]
+  }else if(bestPlay=="H"){
+        while( ((bestPlay=="H")==TRUE || (bestPlay=="D")==TRUE) && pHandT <= 21){
+          endTurnValues <- draw(playerHand, BSDeck, shoe)
+          playerHand <- endTurnValues[[1]]
+          BSDeck <- endTurnValues[[2]]
+          shoe <- endTurnValues[[3]]
+          playerHand <- aceCheck(playerHand)
+          pHandT <- sum(playerHand$Value)
+          bestPlay <- optimalPlay(playerHand, dealerHand, soft, dDown)
+        }
+    }
+ endTurn <- list(playerHand, BSDeck, shoe, dDownCheck) 
+ return(endTurn)
+}
+
+
+splitTurn <- function(playerHand, dealerHand, deck, shoe, soft, dDown){
+  
+playHand1 <- data.frame()
+playHand2 <- data.frame()
+dDownCheck1 <- FALSE
+dDownCheck2 <- FALSE
+playHand1 <- rbind(playHand1, playerHand[1,])
+playHand2 <- rbind(playHand2, playerHand[2,])
+
+#Deal new hands
+  H1draw <- draw(playHand1, deck, shoe)
+  playHand1 <- H1draw[[1]]
+  deck <- H1draw[[2]]
+  shoe <- H1draw[[3]]
+  
+  H2draw <- draw(playHand2, deck, shoe)
+  playHand2 <- H2draw[[1]]
+  deck <- H2draw[[2]]
+  shoe <- H2draw[[3]]
+  
+#Play hand 1 first, to conclusion
+  if(sum(playHand1$Value) == 21){
+    outcome1 <- "Win"
+    reason1 <- "Blackjack"
+    endTurn1 <- list(playHand1, dealerHand, outcome1, reason1, deck, shoe, dDownCheck1)
+  }else if(sum(playHand1$Value) != 21){
+      bestPlay <- optimalPlay(playHand1, dealerHand, soft, dDown)
+      endTurn1 <- optimalTurn(playHand1, dealerHand, deck, shoe, bestPlay, soft, dDown)
+      playHand1 <- endTurn1[[1]]
+      deck <- endTurn1[[2]]
+      shoe <- endTurn1[[3]]
+      dDownCheck1 <- endTurn1[[4]]
+  }
+  
+#Play second hand next, to conclusion
+  if(sum(playHand2$Value) == 21){
+    outcome2 <- "Win"
+    reason2 <- "Blackjack"
+    endTurn2 <- list(playHand2, dealerHand, outcome2, reason2, deck, shoe, dDownCheck2)
+  }else if(sum(playHand2$Value) != 21){
+    bestPlay <- optimalPlay(playHand2, dealerHand, soft, dDown)
+    endTurn2 <- optimalTurn(playHand2, dealerHand, deck, shoe, bestPlay, soft, dDown)
+    playHand2 <- endTurn2[[1]]
+    deck <- endTurn2[[2]]
+    shoe <- endTurn2[[3]]
+    dDownCheck2 <- endTurn2[[4]]
+  }
+  
+#After both hands concluded, dealer takes their turn
+  endTurnValues <- dealerTurn(dealerHand, deck, shoe)
+  dealerHand <- endTurnValues[[1]]
+  deck <- endTurnValues[[2]]
+  shoe <- endTurnValues[[3]]
+  dHandT <- sum(dealerHand$Value)
+  
+#Find outcome of each hand and make a row for each
+  pHandT1 <- sum(playHand1$Value)
+  pHandT2 <- sum(playHand2$Value)
+  if(pHandT1>21){
+    outcome1 <- "Loss"
+    reason1 <- "Bust"
+  }else if(pHandT1 <= 21){
+  outcomes1 <- outcomeHands(pHandT1, dHandT)
+  outcome1 <- outcomes1[[1]]
+  reason1 <- outcomes1[[2]]
+  }
+  if(pHandT2>21){
+    outcome2 <- "Loss"
+    reason2 <- "Bust"
+  }else if(pHandT2 <= 21){
+  outcomes2 <- outcomeHands(pHandT2, dHandT)
+  outcome2 <- outcomes2[[1]]
+  reason2 <- outcomes2[[2]]
+  }
+  
+  endRound1 <- list(playHand1, dealerHand, outcome1, reason1, deck, shoe, dDownCheck1)
+  endRound2 <- list(playHand2, dealerHand, outcome2, reason2, deck, shoe, dDownCheck2)
+  
+  endRound <- list(endRound1, endRound2)
+  return(endRound)
+}
+```
+
+
+##Function to play a game following basic strategy, with soft, ddown, and split being variables set to 1 if the respective ruleset distiction is being allowed for. (i.e. if we are simulating a game where the player follows both a soft and hard total chart, but does not double down or split, it would be 1,0,0)
+```{r}
+simBSGame <- function(numSims, numDecks, soft, dDown, split){
+  BasicStrategySimulations <-data.frame()
+  ordered_deck <- makeOD()
+  newDeck <- cloneDeck(ordered_deck, numDecks)
+  shufDeck <- shuffle(newDeck)
+  deck_p <- penetration(shufDeck, 0.20)
+  shufDeck <- deck_p[[1]]
+  shoe <- deck_p[[2]]
+for(i in 1:numSims){
+    endRound <- BSGame(shufDeck, shoe, soft, dDown, split)
+    #Check if the player split
+    if(length(endRound)==2){
+      ER1 <- endRound[[1]]
+      ER2 <- endRound[[2]]
+      FR1 <- compileOutcome(ER1)
+      FR2 <- compileOutcome(ER2)
+      shufDeck <-ER2[[5]]
+      shoe <- ER2[[6]]
+      dDownCheck1 <- ER1[[7]]
+      dDownCheck2 <- ER2[[7]]
+      if(dDownCheck1 == TRUE){
+      ##If the player doubled down, we double the game, as in real life you double your bet.
+      ##so you either win twice as much as you bet or lose double. Meaning whatever the
+      ##outcome of the round, if we double it it will impact the probabilities accordingly?
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, FR1)
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, FR1)
+      }else if(dDownCheck1==FALSE){
+     BasicStrategySimulations <- rbind(BasicStrategySimulations, FR1)
+      }
+      if(dDownCheck2 == TRUE){
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, FR2)
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, FR2)
+      }else if(dDownCheck2 ==FALSE){
+     BasicStrategySimulations <- rbind(BasicStrategySimulations, FR2)
+    }
+  }else{
+    finalRow <- compileOutcome(endRound)
+    shufDeck <-endRound[[5]]
+    shoe <- endRound[[6]]
+    dDownCheck <- endRound[[7]]
+    if(dDownCheck == TRUE){
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, finalRow)
+      BasicStrategySimulations <- rbind(BasicStrategySimulations, finalRow)
+      }else{
+     BasicStrategySimulations <- rbind(BasicStrategySimulations, finalRow)
+      }
+  }
+  if(nrow(shufDeck)==0){
+    shufDeck <- shuffle(newDeck)
+    deck_p <- penetration(shufDeck, 0.20)
+    shufDeck <- deck_p[[1]]
+    shoe <- deck_p[[2]]
+  }
+}
+return(BasicStrategySimulations)
+}
+
+BSGame <- function(deck, shoe, soft, dDown, split){
+  #Make new hands and set checks to default
+  dDownCheck <- FALSE
+  dDownCheck1 <- FALSE
+  dDownCheck2  <- FALSE
+  playerHand <- data.frame()
+  dealerHand <- data.frame()
+  playHand1 <- data.frame()
+  playHand2 <- data.frame()
+  ## Deal
+  dealtHands <- deal(playerHand, dealerHand, deck, shoe)
+  playerHand <- dealtHands[[1]]
+  dealerHand <- dealtHands[[2]]
+  BSDeck <- dealtHands[[3]]
+  shoe <- dealtHands[[4]]
+  pHandT <- sum(playerHand$Value)
+  dHandT <- sum(dealerHand$Value)
+  ## Blackjack check
+  if(pHandT==21){
+    if(dHandT==21){
+      outcome <- "Push"
+      reason <- "Double Blackjacks"
+      endRound <- list(playerHand, dealerHand, outcome, reason, BSDeck, shoe, dDownCheck)
+    }else{
+      outcome <- "Win"
+      reason <- "Blackjack"
+      endRound <- list(playerHand, dealerHand, outcome, reason, BSDeck, shoe, dDownCheck)
+    }
+  }else if(dHandT==21){
+    outcome <- "Loss"
+    reason <- "Dealer Blackjack"
+    endRound <- list(playerHand, dealerHand, outcome, reason, BSDeck, shoe, dDownCheck)
+##Player turn, based on allowed options and strategy chart
+  }else{
+    sCheck <- splitCheck(playerHand, dealerHand, split)
+    if(sCheck=="Y"){
+      endRound <- splitTurn(playerHand, dealerHand, BSDeck, shoe, soft, dDown)
+    }
+    #if no split, play hand normally
+    else{
+      if(pHandT<=8){
+        bestPlay <- "H"
+      }else if(pHandT>=20){
+        bestPlay <- "S"
+      }else {
+        bestPlay <- optimalPlay(playerHand, dealerHand, soft, dDown)
+      }
+    endTurn <- optimalTurn(playerHand, dealerHand, BSDeck, shoe, bestPlay, soft, dDown)
+    playerHand <- endTurn[[1]]
+    BSDeck <- endTurn[[2]]
+    shoe <- endTurn[[3]]
+    dDownCheck <- endTurn[[4]]
+    pHandT <- sum(playerHand$Value)
+    #Bust check
+    if(pHandT>21){
+      outcome <- "Loss"
+      reason <- "Bust"
+    }else{
+    #Dealer turn
+    endTurnValues <- dealerTurn(dealerHand, BSDeck, shoe)
+    dealerHand <- endTurnValues[[1]]
+    BSDeck <- endTurnValues[[2]]
+    shoe <- endTurnValues[[3]]
+    dHandT <- sum(dealerHand$Value)
+    #Outcomes
+    outcomes <- outcomeHands(pHandT, dHandT)
+    outcome <- outcomes[[1]]
+    reason <- outcomes[[2]]
+    }
+    endRound <- list(playerHand, dealerHand, outcome, reason, BSDeck, shoe, dDownCheck)
+    }
+  }
+  return(endRound)
+  }
+
+```
+
+
+##Misc Functions
+```{r}
+compileOutcome <- function(outcomeList){
+  
+  playerHand <- outcomeList[[1]]
+  pRanks <- compileRanks(playerHand)
+  pTotal <- sum(playerHand$Value)
+  
+  dealerHand <- outcomeList[[2]]
+  dRanks <- compileRanks(dealerHand)
+  dTotal <- sum(dealerHand$Value)
+  
+  outcome <- outcomeList[[3]]
+  reason <-outcomeList[[4]]
+  if(length(outcomeList)>4){
+    deck <- outcomeList[[5]]
+    shoe <- outcomeList[[6]]
+    remainDeck <- nrow(deck)
+    ShoeSize <- nrow(shoe)
+    finalData <- data.frame(outcome, reason, pTotal, dTotal, pRanks, dRanks, remainDeck, ShoeSize)
+  }else{
+    finalData <- data.frame(outcome, reason, pTotal, dTotal, pRanks, dRanks)
+  }
+  return(finalData)
+}
+
+compileRanks <- function(hand){
+    numCards <- nrow(hand)
+  if(numCards==1){
+    Ranks <- hand[1,1]
+  }else{
+  for(i in 1:numCards){
+    if(i==1){
+      Ranks <- hand[1,1]
+    } else {
+    ranki <- hand[i, 1]
+    Ranks <- paste(Ranks, ranki, sep = ", ")
+  }
+  }
+  }
+  return(Ranks)
+}
+
+removeValue <- function(value, ordered_deck){
+  rowCard <- match(value, ordered_deck$Value)
+  ordered_deck <- ordered_deck[-rowCard,]
+}
+
+numLeftinDeck <- function(phand, dhand, cardvalue, numDecks){
+  ##There 16 cards valued at 10, and 4 of everything else, in a single deck
+if(cardvalue==10){
+  numLeft <- 16*numDecks
+}else{
+  numLeft <- 4*numDecks
+}
+if(phand[1,]$Value==cardvalue){
+  numLeft <- numLeft-1
+}
+if(phand[2,]$Value==cardvalue){
+  numLeft <- numLeft-1
+}
+if(dhand[1,]$Value==cardvalue){
+  numLeft <- numLeft-1
+}
+  return(numLeft)
+}
+```
